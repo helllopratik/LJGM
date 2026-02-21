@@ -4,17 +4,18 @@ from evdev import UInput, ecodes, AbsInfo
 class VirtualGamepad:
 
     def __init__(self):
-        self.device = None
+        self.ui = None
         self.create()
 
     def create(self):
 
         capabilities = {
+
             ecodes.EV_KEY: [
-                ecodes.BTN_SOUTH,     # A
-                ecodes.BTN_EAST,      # B
-                ecodes.BTN_NORTH,     # X
-                ecodes.BTN_WEST,      # Y
+                ecodes.BTN_A,
+                ecodes.BTN_B,
+                ecodes.BTN_X,
+                ecodes.BTN_Y,
                 ecodes.BTN_TL,
                 ecodes.BTN_TR,
                 ecodes.BTN_TL2,
@@ -25,29 +26,29 @@ class VirtualGamepad:
                 ecodes.BTN_THUMBR,
             ],
 
-            ecodes.EV_ABS: [
-                (ecodes.ABS_X,  AbsInfo(0, -32768, 32767, 0, 0, 0)),
-                (ecodes.ABS_Y,  AbsInfo(0, -32768, 32767, 0, 0, 0)),
-                (ecodes.ABS_RX, AbsInfo(0, -32768, 32767, 0, 0, 0)),
-                (ecodes.ABS_RY, AbsInfo(0, -32768, 32767, 0, 0, 0)),
-                (ecodes.ABS_HAT0X, AbsInfo(0, -1, 1, 0, 0, 0)),
-                (ecodes.ABS_HAT0Y, AbsInfo(0, -1, 1, 0, 0, 0)),
-            ]
+            ecodes.EV_ABS: {
+                ecodes.ABS_X:  AbsInfo(0, -32768, 32767, 0, 0, 0),
+                ecodes.ABS_Y:  AbsInfo(0, -32768, 32767, 0, 0, 0),
+                ecodes.ABS_RX: AbsInfo(0, -32768, 32767, 0, 0, 0),
+                ecodes.ABS_RY: AbsInfo(0, -32768, 32767, 0, 0, 0),
+                ecodes.ABS_HAT0X: AbsInfo(0, -1, 1, 0, 0, 0),
+                ecodes.ABS_HAT0Y: AbsInfo(0, -1, 1, 0, 0, 0),
+            }
         }
 
-        self.device = UInput(
+        self.ui = UInput(
             capabilities,
             name="LJGM Virtual Gamepad",
-            vendor=0x045e,
-            product=0x028e,
-            version=1,
-            bustype=0x03
+            vendor=0x1234,
+            product=0x5678,
+            version=0x0001,
+            bustype=ecodes.BUS_USB
         )
 
-    def emit_button(self, code, value):
-        self.device.write(ecodes.EV_KEY, code, value)
-        self.device.syn()
+    def emit_key(self, code, value):
+        self.ui.write(ecodes.EV_KEY, code, value)
+        self.ui.syn()
 
-    def emit_axis(self, code, value):
-        self.device.write(ecodes.EV_ABS, code, value)
-        self.device.syn()
+    def emit_abs(self, code, value):
+        self.ui.write(ecodes.EV_ABS, code, value)
+        self.ui.syn()
