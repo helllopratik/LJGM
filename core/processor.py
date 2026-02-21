@@ -1,84 +1,48 @@
 from evdev import ecodes
-from core.mapper import Mapper
 
 
 class InputProcessor:
 
-    DEADZONE = 4000
+    def __init__(self, device, virtual):
 
-    def __init__(self, physical, virtual):
-        self.physical = physical
+        self.device = device
         self.virtual = virtual
+
+        from core.mapper import Mapper
         self.mapper = Mapper()
 
-        # For now default mode = analog
-        # Later we will auto-detect LED state
         self.current_mode = "analog"
-
-    def normalize_axis(self, value):
-        return int((value - 128) * 256)
-
-    def apply_deadzone(self, value):
-        if abs(value) < self.DEADZONE:
-            return 0
-        return value
 
     def start(self):
 
         print("[+] Grabbing physical device...")
-        self.physical.grab()
+        self.device.grab()
+
         print("[+] Forwarding events with dynamic mapping...")
 
-        for event in self.physical.read_loop():
+        for event in self.device.read_loop():
 
-            # ------------------------
             # BUTTON EVENTS
-            # ------------------------
             if event.type == ecodes.EV_KEY:
 
-                mapped_name = self.mapper.translate(
-                    self.current_mode,
-                    event.code
-                )
+                mode_data = self.mapper.data.get(self.current_mode, {})
+                button_map = mode_data.get("buttons", {})
+
+                mapped_name = button_map.get(str(event.code))
 
                 if mapped_name:
-                    try:
-                        mapped_code = getattr(ecodes, mapped_name)
-                        self.virtual.emit_key(mapped_code, event.value)
-                    except AttributeError:
-                        pass
+                    # Convert string name like "BTN_A" to ecodes value
+                    mapped_code = getattr(ecodes, mapped_name)
+                    self.virtual.emit_button(mapped_code, event.value)
 
-            # ------------------------
             # AXIS EVENTS
-            # ------------------------
             elif event.type == ecodes.EV_ABS:
 
-                # Left Stick
-                if event.code == ecodes.ABS_X:
-                    value = self.apply_deadzone(
-                        self.normalize_axis(event.value)
-                    )
-                    self.virtual.emit_abs(ecodes.ABS_X, value)
+                mode_data = self.mapper.data.get(self.current_mode, {})
+                axis_map = mode_data.get("axes", {})
 
-                elif event.code == ecodes.ABS_Y:
-                    value = self.apply_deadzone(
-                        self.normalize_axis(event.value)
-                    )
-                    self.virtual.emit_abs(ecodes.ABS_Y, value)
+                mapped_name = axis_map.get(str(event.code))
 
-                # Right Stick (DragonRise)
-                elif event.code == ecodes.ABS_Z:
-                    value = self.apply_deadzone(
-                        self.normalize_axis(event.value)
-                    )
-                    self.virtual.emit_abs(ecodes.ABS_RX, value)
-
-                elif event.code == ecodes.ABS_RZ:
-                    value = self.apply_deadzone(
-                        self.normalize_axis(event.value)
-                    )
-                    self.virtual.emit_abs(ecodes.ABS_RY, value)
-
-                # D-Pad
-                elif event.code in (ecodes.ABS_HAT0X, ecodes.ABS_HAT0Y):
-                    self.virtual.emit_abs(event.code, event.value)
+                if mapped_name:
+                    mapped_code = getattr(ecodes, mapped_name)
+                    self.virtual.emit_axis(mapped_code, event.value)
