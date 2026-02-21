@@ -1,0 +1,34 @@
+{
+    "analog": {
+        "buttons": {
+            "288": "BTN_Y",
+            "289": "BTN_B",
+            "290": "BTN_A",
+            "291": "BTN_X",
+            "298": "BTN_THUMBL",
+            "299": "BTN_THUMBR",
+            "297": "BTN_START",
+            "292": "BTN_TL",
+            "294": "BTN_TL2",
+            "295": "BTN_TR2",
+            "293": "BTN_TR",
+            "296": "BTN_SELECT"
+        }
+    },
+    "digital": {
+        "buttons": {
+            "288": "BTN_A",
+            "289": "BTN_B",
+            "290": "BTN_X",
+            "291": "BTN_Y",
+            "294": "BTN_TL2",
+            "292": "BTN_TL",
+            "295": "BTN_TR2",
+            "293": "BTN_TR",
+            "296": "BTN_SELECT",
+            "297": "BTN_START",
+            "298": "BTN_THUMBL",
+            "299": "BTN_THUMBR"
+        }
+    }
+}
