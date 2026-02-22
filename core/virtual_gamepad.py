@@ -56,3 +56,11 @@ class VirtualGamepad:
     def emit_abs(self, code, value):
         self.ui.write(ecodes.EV_ABS, code, value)
         self.ui.syn()
+
+    def close(self):
+        if self.ui:
+            try:
+                self.ui.close()
+            except Exception:
+                pass
+            self.ui = None

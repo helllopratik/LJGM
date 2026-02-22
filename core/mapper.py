@@ -68,23 +68,39 @@ class Mapper:
         self.save()
 
     def translate(self, mode, physical_code, physical_value=None):
-        buttons = self.data.get(mode, {}).get("buttons", {})
+        modes = [mode] if mode in ("analog", "digital") else []
+        for fallback in ("analog", "digital"):
+            if fallback not in modes:
+                modes.append(fallback)
 
-        # Legacy/basic mapping: key by event code only.
-        mapped = buttons.get(str(physical_code))
-        if mapped:
-            return mapped
+        for current_mode in modes:
+            buttons = self.data.get(current_mode, {}).get("buttons", {})
 
-        # Directional axis mapping: key by "<code>:<value>".
-        if physical_value is not None:
-            return buttons.get(f"{physical_code}:{physical_value}")
+            # Legacy/basic mapping: key by event code only.
+            mapped = buttons.get(str(physical_code))
+            if mapped:
+                return mapped
+
+            # Directional axis mapping: key by "<code>:<value>".
+            if physical_value is not None:
+                mapped = buttons.get(f"{physical_code}:{physical_value}")
+                if mapped:
+                    return mapped
 
         return None
 
     def has_axis_direction_mappings(self, mode, axis_code):
         prefix = f"{axis_code}:"
-        buttons = self.data.get(mode, {}).get("buttons", {})
-        return any(key.startswith(prefix) for key in buttons)
+        modes = [mode] if mode in ("analog", "digital") else []
+        for fallback in ("analog", "digital"):
+            if fallback not in modes:
+                modes.append(fallback)
+
+        for current_mode in modes:
+            buttons = self.data.get(current_mode, {}).get("buttons", {})
+            if any(key.startswith(prefix) for key in buttons):
+                return True
+        return False
 
     def is_empty(self):
         return (

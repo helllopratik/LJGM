@@ -28,42 +28,73 @@ class ControllerThread(QThread):
 
     status_signal = pyqtSignal(str)
 
-    def __init__(self, device_path=None, vid=None, pid=None, keyset_mode="analog"):
+    def __init__(
+        self,
+        device_path=None,
+        vid=None,
+        pid=None,
+        use_mouse_mode=False,
+        stick_sensitivity=100,
+        mouse_sensitivity=140,
+    ):
         super().__init__()
         self.device_path = device_path
         self.vid = vid
         self.pid = pid
-        self.keyset_mode = keyset_mode
+        self.use_mouse_mode = use_mouse_mode
+        self.stick_sensitivity = stick_sensitivity
+        self.mouse_sensitivity = mouse_sensitivity
+        self.processor = None
         self.running = False
 
     def run(self):
+        try:
+            device = None
+            if self.device_path:
+                try:
+                    device = InputDevice(self.device_path)
+                except Exception:
+                    device = None
 
-        device = None
-        if self.device_path:
-            try:
-                device = InputDevice(self.device_path)
-            except Exception:
-                device = None
+            if not device:
+                detector = DeviceDetector(vid=self.vid, pid=self.pid)
+                device = detector.find()
 
-        if not device:
-            detector = DeviceDetector(vid=self.vid, pid=self.pid)
-            device = detector.find()
+            if not device:
+                self.status_signal.emit("Device Not Found")
+                return
 
-        if not device:
-            self.status_signal.emit("Device Not Found")
-            return
+            self.status_signal.emit("Running")
 
-        self.status_signal.emit("Running")
+            virtual = VirtualGamepad()
+            self.processor = InputProcessor(device, virtual)
+            self.processor.set_mouse_mode(self.use_mouse_mode)
+            self.processor.set_stick_sensitivity(self.stick_sensitivity)
+            self.processor.set_mouse_sensitivity(self.mouse_sensitivity)
 
-        virtual = VirtualGamepad()
-        processor = InputProcessor(device, virtual)
-        processor.current_mode = self.keyset_mode
+            self.running = True
+            self.processor.start()
+        except Exception as e:
+            self.status_signal.emit(f"Error: {e}")
 
-        self.running = True
-        processor.start()
+    def set_mouse_mode(self, enabled):
+        self.use_mouse_mode = enabled
+        if self.processor:
+            self.processor.set_mouse_mode(enabled)
+
+    def set_sensitivity(self, percent):
+        self.stick_sensitivity = percent
+        if self.processor:
+            self.processor.set_stick_sensitivity(percent)
+
+    def set_mouse_sensitivity(self, percent):
+        self.mouse_sensitivity = percent
+        if self.processor:
+            self.processor.set_mouse_sensitivity(percent)
 
     def stop(self):
-        self.terminate()
+        if self.processor:
+            self.processor.stop()
         self.wait()
 
 
@@ -78,6 +109,7 @@ class LJGM(QMainWindow):
 
         self.setWindowTitle("LJGM - Linux Joypad Generic Manager")
         self.setMinimumSize(1200, 800)
+        self.apply_dark_theme()
 
         self.thread = None
         self.vibration = VibrationManager()
@@ -102,6 +134,7 @@ class LJGM(QMainWindow):
         self.tabs.addTab(self.advanced_tab_widget, "Advanced")
 
         self.refresh_device_info()
+        self.update_service_controls(False)
 
     # 🔹 Disable Assign + Vibration if no device detected
         if not self.selected_device:
@@ -124,11 +157,6 @@ class LJGM(QMainWindow):
         self.start_btn = QPushButton("Start Service")
         self.stop_btn = QPushButton("Stop Service")
 
-        self.start_btn.setStyleSheet("background-color: green; color: white;")
-        self.stop_btn.setStyleSheet("background-color: red; color: white;")
-
-        self.stop_btn.setEnabled(False)
-
         self.start_btn.clicked.connect(self.start_service)
         self.stop_btn.clicked.connect(self.stop_service)
 
@@ -145,17 +173,24 @@ class LJGM(QMainWindow):
         # Mouse mode
         self.mouse_checkbox = QCheckBox("Use Left Stick as Mouse")
         self.mouse_checkbox.setEnabled(False)
+        self.mouse_checkbox.stateChanged.connect(self.on_mouse_mode_changed)
+        self.mouse_sensitivity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.mouse_sensitivity_slider.setRange(20, 300)
+        self.mouse_sensitivity_slider.setValue(140)
+        self.mouse_sensitivity_slider.setEnabled(False)
+        self.mouse_sensitivity_slider.valueChanged.connect(
+            self.on_mouse_sensitivity_changed
+        )
+        self.mouse_sensitivity_label = QLabel("Mouse Sensitivity: 140%")
+        self.mouse_guide = QLabel()
+        self.mouse_guide.setWordWrap(True)
+        self.mouse_guide.hide()
 
         # Explicit controller selector when multiple gamepads are connected
         self.controller_select = QComboBox()
         self.controller_select.currentIndexChanged.connect(self.on_controller_selected)
         self.refresh_controllers_btn = QPushButton("Refresh Controllers")
         self.refresh_controllers_btn.clicked.connect(self.refresh_device_info)
-
-        # Active mapping mode for runtime processing
-        self.active_mode_select = QComboBox()
-        self.active_mode_select.addItems(["analog", "digital"])
-        self.active_mode_select.setCurrentText("analog")
 
         layout.addWidget(self.device_label)
         layout.addWidget(self.status_label)
@@ -165,17 +200,94 @@ class LJGM(QMainWindow):
         layout.addWidget(QLabel("Controller List"))
         layout.addWidget(self.controller_select)
         layout.addWidget(self.refresh_controllers_btn)
-        layout.addWidget(QLabel("Active Keyset Mode"))
-        layout.addWidget(self.active_mode_select)
 
         layout.addWidget(QLabel("Stick Sensitivity"))
         layout.addWidget(self.sensitivity_slider)
         layout.addWidget(self.apply_sensitivity_btn)
         layout.addWidget(self.mouse_checkbox)
+        layout.addWidget(self.mouse_sensitivity_label)
+        layout.addWidget(self.mouse_sensitivity_slider)
+        layout.addWidget(self.mouse_guide)
 
         layout.addStretch()
         widget.setLayout(layout)
         return widget
+
+    def apply_dark_theme(self):
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #111317;
+                color: #e6e8eb;
+                font-size: 13px;
+            }
+            QTabWidget::pane {
+                border: 1px solid #2a2f37;
+                border-radius: 8px;
+                padding: 6px;
+            }
+            QTabBar::tab {
+                background: #1b2027;
+                border: 1px solid #2a2f37;
+                padding: 8px 14px;
+                margin-right: 6px;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+            }
+            QTabBar::tab:selected {
+                background: #242b35;
+                color: #ffffff;
+            }
+            QPushButton {
+                background-color: #2b3440;
+                border: 1px solid #3b4655;
+                border-radius: 7px;
+                padding: 8px 12px;
+                color: #f0f4f8;
+            }
+            QPushButton:hover:enabled { background-color: #364455; }
+            QPushButton:disabled {
+                background-color: #1a1f26;
+                color: #6e7782;
+                border: 1px solid #2a313a;
+            }
+            QLineEdit, QTextEdit, QComboBox {
+                background-color: #0f1318;
+                border: 1px solid #303844;
+                border-radius: 6px;
+                padding: 6px;
+            }
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: #2a313a;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                width: 16px;
+                margin: -6px 0;
+                border-radius: 8px;
+                background: #56a8ff;
+            }
+        """)
+
+    def update_service_controls(self, running):
+        self.start_btn.setEnabled(not running and self.selected_device is not None)
+        self.stop_btn.setEnabled(running)
+        self.controller_select.setEnabled(not running and bool(self.available_devices))
+        self.refresh_controllers_btn.setEnabled(not running)
+
+        self.sensitivity_slider.setEnabled(running)
+        self.apply_sensitivity_btn.setEnabled(running)
+        self.mouse_checkbox.setEnabled(running)
+        self.mouse_sensitivity_slider.setEnabled(
+            running and self.mouse_checkbox.isChecked()
+        )
+
+        if running:
+            self.start_btn.setStyleSheet("background-color: #1a1f26; color: #6e7782;")
+            self.stop_btn.setStyleSheet("background-color: #d04545; color: white;")
+        else:
+            self.start_btn.setStyleSheet("background-color: #2f8f4e; color: white;")
+            self.stop_btn.setStyleSheet("background-color: #1a1f26; color: #6e7782;")
 
     def start_service(self):
     
@@ -189,47 +301,89 @@ class LJGM(QMainWindow):
             device_path=self.selected_device.path,
             vid=format(self.selected_device.info.vendor, "04x"),
             pid=format(self.selected_device.info.product, "04x"),
-            keyset_mode=self.active_mode_select.currentText()
+            use_mouse_mode=self.mouse_checkbox.isChecked(),
+            stick_sensitivity=self.sensitivity_slider.value(),
+            mouse_sensitivity=self.mouse_sensitivity_slider.value(),
         )
 
         self.thread.status_signal.connect(self.update_status)
         self.thread.start()
-
-        self.start_btn.setEnabled(False)
-        self.stop_btn.setEnabled(True)
-        self.controller_select.setEnabled(False)
-        self.refresh_controllers_btn.setEnabled(False)
-
-        self.sensitivity_slider.setEnabled(True)
-        self.apply_sensitivity_btn.setEnabled(True)
-        self.mouse_checkbox.setEnabled(True)
+        self.update_service_controls(True)
+        if self.mouse_checkbox.isChecked():
+            self.update_mouse_guide()
     def stop_service(self):
 
         if self.thread:
             self.thread.stop()
+            self.thread = None
 
         self.update_status("Not Running")
+        self.update_service_controls(False)
 
-        self.start_btn.setEnabled(True)
-        self.stop_btn.setEnabled(False)
-        self.controller_select.setEnabled(True)
-        self.refresh_controllers_btn.setEnabled(True)
+    def on_mouse_mode_changed(self, state):
+        enabled = state == 2
+        self.mouse_sensitivity_slider.setEnabled(
+            enabled and self.thread and self.thread.isRunning()
+        )
+        self.mouse_guide.setVisible(enabled)
+        if enabled:
+            self.update_mouse_guide()
+        if self.thread and self.thread.isRunning():
+            self.thread.set_mouse_mode(enabled)
+            self.thread.set_mouse_sensitivity(self.mouse_sensitivity_slider.value())
 
-        self.sensitivity_slider.setEnabled(False)
-        self.apply_sensitivity_btn.setEnabled(False)
-        self.mouse_checkbox.setEnabled(False)
+    def on_mouse_sensitivity_changed(self, value):
+        self.mouse_sensitivity_label.setText(f"Mouse Sensitivity: {value}%")
+        if self.thread and self.thread.isRunning():
+            self.thread.set_mouse_sensitivity(value)
 
     def update_status(self, status):
-
+    
         if status == "Running":
             self.status_label.setText("Status: 🟢 Running")
         else:
             self.status_label.setText("Status: 🔴 " + status)
+            if status.startswith("Error"):
+                self.update_service_controls(False)
 
     def apply_sensitivity(self):
         value = self.sensitivity_slider.value()
-        print("Applying sensitivity:", value)
-        # integrate with processor later
+        if self.thread and self.thread.isRunning():
+            self.thread.set_sensitivity(value)
+            self.status_label.setText(f"Status: 🟢 Running (Stick Sensitivity {value}%)")
+        else:
+            self.status_label.setText(f"Status: 🔴 Not Running (Stick Sensitivity {value}%)")
+
+    def _binding_for_virtual(self, virtual_name):
+        data = Mapper().data
+        analog = data.get("analog", {}).get("buttons", {})
+        digital = data.get("digital", {}).get("buttons", {})
+
+        analog_key = next((p for p, v in analog.items() if v == virtual_name), None)
+        digital_key = next((p for p, v in digital.items() if v == virtual_name), None)
+
+        if analog_key and digital_key:
+            if analog_key == digital_key:
+                return analog_key
+            return f"analog:{analog_key} | digital:{digital_key}"
+        if analog_key:
+            return f"analog:{analog_key}"
+        if digital_key:
+            return f"digital:{digital_key}"
+        return "not assigned"
+
+    def update_mouse_guide(self):
+        guide_lines = [
+            "Mouse Guide (auto mode from analog/digital bindings):",
+            "Cursor Move: Left Stick (D-Pad also moves cursor if controller emits HAT)",
+            f"Left Click: {self._binding_for_virtual('BTN_A')} -> BTN_A",
+            f"Right Click: {self._binding_for_virtual('BTN_B')} -> BTN_B",
+            f"Double Click: {self._binding_for_virtual('BTN_X')} -> BTN_X",
+            f"Middle Click: {self._binding_for_virtual('BTN_Y')} -> BTN_Y",
+            f"Scroll Up: {self._binding_for_virtual('BTN_TL')} -> BTN_TL",
+            f"Scroll Down: {self._binding_for_virtual('BTN_TR')} -> BTN_TR",
+        ]
+        self.mouse_guide.setText("\n".join(guide_lines))
 
     def refresh_device_info(self):
         self.refresh_controller_list()
@@ -264,15 +418,16 @@ class LJGM(QMainWindow):
             self.status_label.setText("Status: 🔴 Not Running")
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(False)
-            self.sensitivity_slider.setEnabled(False)
-            self.apply_sensitivity_btn.setEnabled(False)
-            self.mouse_checkbox.setEnabled(False)
+            self.update_service_controls(False)
+            self.mouse_checkbox.setChecked(False)
+            self.mouse_guide.hide()
             self.controller_select.setEnabled(False)
             self.tabs.setTabEnabled(1, False)
             self.tabs.setTabEnabled(2, False)
             return
 
         self.controller_select.setEnabled(True)
+        self.update_service_controls(False)
         target_index = 0
         if previous_path:
             for idx, dev in enumerate(devices):
@@ -302,6 +457,8 @@ class LJGM(QMainWindow):
         self.tabs.setTabEnabled(2, True)
         self.assign_tab.set_controller_path(device.path)
         self.vibration.set_device_path(device.path)
+        if self.mouse_checkbox.isChecked():
+            self.update_mouse_guide()
 
     # ======================
     # Vibration
