@@ -24,6 +24,10 @@ class VirtualGamepad:
                 ecodes.BTN_START,
                 ecodes.BTN_THUMBL,
                 ecodes.BTN_THUMBR,
+                ecodes.BTN_DPAD_UP,
+                ecodes.BTN_DPAD_DOWN,
+                ecodes.BTN_DPAD_LEFT,
+                ecodes.BTN_DPAD_RIGHT,
             ],
 
             ecodes.EV_ABS: {

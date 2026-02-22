@@ -1,4 +1,5 @@
 import sys
+import os
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QApplication,
     QComboBox, QPushButton,
@@ -22,7 +23,11 @@ BUTTON_MAP = {
     "Select": "BTN_SELECT",
     "Start": "BTN_START",
     "L3 (Left Stick Press)": "BTN_THUMBL",
-    "R3 (Right Stick Press)": "BTN_THUMBR"
+    "R3 (Right Stick Press)": "BTN_THUMBR",
+    "D-Pad Up": "BTN_DPAD_UP",
+    "D-Pad Down": "BTN_DPAD_DOWN",
+    "D-Pad Left": "BTN_DPAD_LEFT",
+    "D-Pad Right": "BTN_DPAD_RIGHT",
 }
 
 
@@ -32,7 +37,7 @@ class MappingWizard(QWidget):
         super().__init__()
 
         self.setWindowTitle("LJGM - Controller Mapping Wizard")
-        self.setFixedSize(850, 600)
+        self.setFixedSize(900, 660)
 
         self.mapper = Mapper()
         self.current_mode = "analog"
@@ -48,6 +53,8 @@ class MappingWizard(QWidget):
         self.timer = QTimer()
         self.timer.timeout.connect(self.poll_input)
         self.timer.start(10)
+        if not self.joystick:
+            self.status.setText("No joystick detected")
 
     # ----------------- UI -----------------
 
@@ -81,6 +88,10 @@ class MappingWizard(QWidget):
 
             ("L3 (Left Stick Press)", 5, 0),
             ("R3 (Right Stick Press)", 5, 3),
+            ("D-Pad Up", 6, 1),
+            ("D-Pad Left", 7, 0),
+            ("D-Pad Right", 7, 2),
+            ("D-Pad Down", 8, 1),
         ]
 
         for name, row, col in layout_order:
@@ -111,8 +122,29 @@ class MappingWizard(QWidget):
     def detect_joystick(self):
         for path in list_devices():
             dev = InputDevice(path)
-            if "Joystick" in dev.name:
+            caps = dev.capabilities()
+            if ecodes.EV_ABS in caps and ecodes.EV_KEY in caps:
+                os.set_blocking(dev.fd, False)
                 return dev
+        return None
+
+    def _extract_physical_token(self, event, virtual_name):
+        if event.type == ecodes.EV_KEY and event.value == 1:
+            return str(event.code)
+
+        if event.type != ecodes.EV_ABS:
+            return None
+
+        # D-pad directions generally come from HAT axis events.
+        if virtual_name == "BTN_DPAD_UP" and event.code == ecodes.ABS_HAT0Y and event.value == -1:
+            return f"{event.code}:{event.value}"
+        if virtual_name == "BTN_DPAD_DOWN" and event.code == ecodes.ABS_HAT0Y and event.value == 1:
+            return f"{event.code}:{event.value}"
+        if virtual_name == "BTN_DPAD_LEFT" and event.code == ecodes.ABS_HAT0X and event.value == -1:
+            return f"{event.code}:{event.value}"
+        if virtual_name == "BTN_DPAD_RIGHT" and event.code == ecodes.ABS_HAT0X and event.value == 1:
+            return f"{event.code}:{event.value}"
+
         return None
 
     def change_mode(self, mode):
@@ -128,6 +160,7 @@ class MappingWizard(QWidget):
         self.status.setText(f"Press physical button for {name}")
 
     def refresh_ui(self):
+        self.current_mode = self.mode_select.currentText()
 
         mode_data = self.mapper.data.get(self.current_mode, {}).get("buttons", {})
 
@@ -153,19 +186,23 @@ class MappingWizard(QWidget):
 
         try:
             for event in self.joystick.read():
-                if event.type == ecodes.EV_KEY and event.value == 1:
+                self.current_mode = self.mode_select.currentText()
+                virtual_name = BUTTON_MAP[self.waiting_for]
+                physical_token = self._extract_physical_token(event, virtual_name)
 
-                    virtual_name = BUTTON_MAP[self.waiting_for]
+                if not physical_token:
+                    continue
 
-                    self.mapper.set_mapping(
-                        self.current_mode,
-                        event.code,
-                        virtual_name
-                    )
+                self.mapper.set_mapping(
+                    self.current_mode,
+                    physical_token,
+                    virtual_name
+                )
 
-                    self.waiting_for = None
-                    self.refresh_ui()
-                    self.status.setText("Mapping updated")
+                self.waiting_for = None
+                self.refresh_ui()
+                self.status.setText(f"Mapping updated: {physical_token} -> {virtual_name}")
+                break
 
         except BlockingIOError:
             pass

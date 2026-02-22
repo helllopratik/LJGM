@@ -1,17 +1,5 @@
-import sys
-from PyQt6.QtWidgets import QApplication
-from gui.mapping_wizard import MappingWizard
-from core.mapper import Mapper
+from main import run_app
 
 
-app = QApplication(sys.argv)
-
-mapper = Mapper()
-
-if mapper.is_empty():
-    window = MappingWizard()
-else:
-    window = MappingWizard()  # Later replace with main GUI
-
-window.show()
-sys.exit(app.exec())
+if __name__ == "__main__":
+    run_app()

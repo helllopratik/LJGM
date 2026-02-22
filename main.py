@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QTabWidget, QSlider,
     QCheckBox, QTextEdit, QLineEdit,
     QFormLayout, QRadioButton, QButtonGroup,
-    QTextEdit
+    QTextEdit, QComboBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 
@@ -14,6 +14,7 @@ from core.device_detector import DeviceDetector
 from core.virtual_gamepad import VirtualGamepad
 from core.processor import InputProcessor
 from core.vibration import VibrationManager
+from core.mapper import Mapper
 from gui.mapping_wizard import MappingWizard
 
 
@@ -26,10 +27,11 @@ class ControllerThread(QThread):
 
     status_signal = pyqtSignal(str)
 
-    def __init__(self, vid, pid):
+    def __init__(self, vid, pid, keyset_mode="analog"):
         super().__init__()
         self.vid = vid
         self.pid = pid
+        self.keyset_mode = keyset_mode
         self.running = False
 
     def run(self):
@@ -45,6 +47,7 @@ class ControllerThread(QThread):
 
         virtual = VirtualGamepad()
         processor = InputProcessor(device, virtual)
+        processor.current_mode = self.keyset_mode
 
         self.running = True
         processor.start()
@@ -64,7 +67,7 @@ class LJGM(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("LJGM - Linux Joypad Generic Manager")
-        self.setMinimumSize(1100, 750)
+        self.setMinimumSize(1200, 800)
 
         self.thread = None
         self.vibration = VibrationManager()
@@ -132,11 +135,18 @@ class LJGM(QMainWindow):
         self.mouse_checkbox = QCheckBox("Use Left Stick as Mouse")
         self.mouse_checkbox.setEnabled(False)
 
+        # Active mapping mode for runtime processing
+        self.active_mode_select = QComboBox()
+        self.active_mode_select.addItems(["analog", "digital"])
+        self.active_mode_select.setCurrentText("analog")
+
         layout.addWidget(self.device_label)
         layout.addWidget(self.status_label)
 
         layout.addWidget(self.start_btn)
         layout.addWidget(self.stop_btn)
+        layout.addWidget(QLabel("Active Keyset Mode"))
+        layout.addWidget(self.active_mode_select)
 
         layout.addWidget(QLabel("Stick Sensitivity"))
         layout.addWidget(self.sensitivity_slider)
@@ -157,7 +167,8 @@ class LJGM(QMainWindow):
 
         self.thread = ControllerThread(
             format(self.selected_device.info.vendor, "04x"),
-            format(self.selected_device.info.product, "04x")
+            format(self.selected_device.info.product, "04x"),
+            self.active_mode_select.currentText()
         )
 
         self.thread.status_signal.connect(self.update_status)
@@ -347,8 +358,13 @@ class LJGM(QMainWindow):
             self.lsusb_output.setText(str(e))
 
 
-if __name__ == "__main__":
+def run_app():
     app = QApplication(sys.argv)
-    window = LJGM()
+    mapper = Mapper()
+    window = MappingWizard() if mapper.is_empty() else LJGM()
     window.show()
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    run_app()

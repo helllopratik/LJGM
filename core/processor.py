@@ -10,6 +10,10 @@ class InputProcessor:
         self.physical = physical
         self.virtual = virtual
         self.mapper = Mapper()
+        self.hat_state = {
+            ecodes.ABS_HAT0X: 0,
+            ecodes.ABS_HAT0Y: 0,
+        }
 
         # For now default mode = analog
         # Later we will auto-detect LED state
@@ -22,6 +26,36 @@ class InputProcessor:
         if abs(value) < self.DEADZONE:
             return 0
         return value
+
+    def _emit_mapped_key(self, mapped_name, value):
+        try:
+            mapped_code = getattr(ecodes, mapped_name)
+            self.virtual.emit_key(mapped_code, value)
+        except AttributeError:
+            pass
+
+    def _handle_hat_mapping(self, code, value):
+        old_value = self.hat_state.get(code, 0)
+        if old_value == value:
+            return
+
+        old_mapped = None
+        if old_value in (-1, 1):
+            old_mapped = self.mapper.translate(
+                self.current_mode, code, old_value
+            )
+        if old_mapped:
+            self._emit_mapped_key(old_mapped, 0)
+
+        new_mapped = None
+        if value in (-1, 1):
+            new_mapped = self.mapper.translate(
+                self.current_mode, code, value
+            )
+        if new_mapped:
+            self._emit_mapped_key(new_mapped, 1)
+
+        self.hat_state[code] = value
 
     def start(self):
 
@@ -42,11 +76,7 @@ class InputProcessor:
                 )
 
                 if mapped_name:
-                    try:
-                        mapped_code = getattr(ecodes, mapped_name)
-                        self.virtual.emit_key(mapped_code, event.value)
-                    except AttributeError:
-                        pass
+                    self._emit_mapped_key(mapped_name, event.value)
 
             # ------------------------
             # AXIS EVENTS
@@ -81,4 +111,9 @@ class InputProcessor:
 
                 # D-Pad
                 elif event.code in (ecodes.ABS_HAT0X, ecodes.ABS_HAT0Y):
-                    self.virtual.emit_abs(event.code, event.value)
+                    if self.mapper.has_axis_direction_mappings(
+                        self.current_mode, event.code
+                    ):
+                        self._handle_hat_mapping(event.code, event.value)
+                    else:
+                        self.virtual.emit_abs(event.code, event.value)

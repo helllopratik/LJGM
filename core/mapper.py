@@ -67,8 +67,24 @@ class Mapper:
         self.data[mode]["buttons"][str(physical_code)] = virtual_button
         self.save()
 
-    def translate(self, mode, physical_code):
-        return self.data.get(mode, {}).get("buttons", {}).get(str(physical_code))
+    def translate(self, mode, physical_code, physical_value=None):
+        buttons = self.data.get(mode, {}).get("buttons", {})
+
+        # Legacy/basic mapping: key by event code only.
+        mapped = buttons.get(str(physical_code))
+        if mapped:
+            return mapped
+
+        # Directional axis mapping: key by "<code>:<value>".
+        if physical_value is not None:
+            return buttons.get(f"{physical_code}:{physical_value}")
+
+        return None
+
+    def has_axis_direction_mappings(self, mode, axis_code):
+        prefix = f"{axis_code}:"
+        buttons = self.data.get(mode, {}).get("buttons", {})
+        return any(key.startswith(prefix) for key in buttons)
 
     def is_empty(self):
         return (

@@ -12,7 +12,11 @@
             "296": "BTN_SELECT",
             "297": "BTN_START",
             "298": "BTN_THUMBL",
-            "299": "BTN_THUMBR"
+            "299": "BTN_THUMBR",
+            "17:-1": "BTN_DPAD_UP",
+            "16:-1": "BTN_DPAD_LEFT",
+            "17:1": "BTN_DPAD_DOWN",
+            "16:1": "BTN_DPAD_RIGHT"
         }
     },
     "digital": {
