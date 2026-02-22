@@ -66,21 +66,33 @@ class LJGM(QMainWindow):
         self.setWindowTitle("LJGM - Linux Joypad Generic Manager")
         self.setMinimumSize(1100, 750)
 
-        self.current_vid = "0079"
-        self.current_pid = "0007"
-
         self.thread = None
         self.vibration = VibrationManager()
+        # Default empty VID/PID (not hardcoded)
+        self.current_vid = ""
+        self.current_pid = ""
+
+        self.selected_device = None  # 🔹 central device reference
 
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        self.tabs.addTab(self.dashboard_tab(), "Dashboard")
-        self.tabs.addTab(MappingWizard(), "Assign")
-        self.tabs.addTab(self.vibration_tab(), "Vibration")
-        self.tabs.addTab(self.advanced_tab(), "Advanced")
+        self.dashboard = self.dashboard_tab()
+        self.assign_tab = MappingWizard()
+        self.vibration_tab_widget = self.vibration_tab()
+        self.advanced_tab_widget = self.advanced_tab()
+
+        self.tabs.addTab(self.dashboard, "Dashboard")
+        self.tabs.addTab(self.assign_tab, "Assign")
+        self.tabs.addTab(self.vibration_tab_widget, "Vibration")
+        self.tabs.addTab(self.advanced_tab_widget, "Advanced")
 
         self.refresh_device_info()
+
+    # 🔹 Disable Assign + Vibration if no device detected
+        if not self.selected_device:
+            self.tabs.setTabEnabled(1, False)  # Assign
+            self.tabs.setTabEnabled(2, False)  # Vibration
 
     # ======================
     # Dashboard
@@ -136,11 +148,18 @@ class LJGM(QMainWindow):
         return widget
 
     def start_service(self):
+    
+        if not self.selected_device:
+            return
 
         if self.thread and self.thread.isRunning():
             return
 
-        self.thread = ControllerThread(self.current_vid, self.current_pid)
+        self.thread = ControllerThread(
+            format(self.selected_device.info.vendor, "04x"),
+            format(self.selected_device.info.product, "04x")
+        )
+
         self.thread.status_signal.connect(self.update_status)
         self.thread.start()
 
@@ -150,7 +169,6 @@ class LJGM(QMainWindow):
         self.sensitivity_slider.setEnabled(True)
         self.apply_sensitivity_btn.setEnabled(True)
         self.mouse_checkbox.setEnabled(True)
-
     def stop_service(self):
 
         if self.thread:
@@ -178,22 +196,45 @@ class LJGM(QMainWindow):
         # integrate with processor later
 
     def refresh_device_info(self):
+    
+        vid = self.vid_input.text().strip() if hasattr(self, "vid_input") else ""
+        pid = self.pid_input.text().strip() if hasattr(self, "pid_input") else ""
 
-        detector = DeviceDetector(
-            vid=self.current_vid,
-            pid=self.current_pid
-        )
-
+        detector = DeviceDetector(vid=vid or None, pid=pid or None)
         device = detector.find()
 
         if device:
+            self.selected_device = device
+
+            actual_vid = format(device.info.vendor, "04x")
+            actual_pid = format(device.info.product, "04x")
+
             self.device_label.setText(
-                f"Device: {device.name} | VID: {self.current_vid} | PID: {self.current_pid}"
+                f"Device: {device.name} | VID: {actual_vid} | PID: {actual_pid}"
             )
             self.status_label.setText("Status: 🔴 Not Running")
+
+            self.start_btn.setEnabled(True)
+            self.stop_btn.setEnabled(False)
+
+            self.tabs.setTabEnabled(1, True)
+            self.tabs.setTabEnabled(2, True)
+
         else:
+            self.selected_device = None
+
             self.device_label.setText("Device: Not Detected")
             self.status_label.setText("Status: 🔴 Not Running")
+
+            self.start_btn.setEnabled(False)
+            self.stop_btn.setEnabled(False)
+
+            self.sensitivity_slider.setEnabled(False)
+            self.apply_sensitivity_btn.setEnabled(False)
+            self.mouse_checkbox.setEnabled(False)
+
+            self.tabs.setTabEnabled(1, False)
+            self.tabs.setTabEnabled(2, False)
 
     # ======================
     # Vibration
@@ -295,8 +336,7 @@ class LJGM(QMainWindow):
         return widget
 
     def apply_vid_pid(self):
-        self.current_vid = self.vid_input.text()
-        self.current_pid = self.pid_input.text()
+
         self.refresh_device_info()
 
     def refresh_lsusb(self):
