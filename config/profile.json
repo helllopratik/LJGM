@@ -32,7 +32,8 @@
             "296": "BTN_SELECT",
             "297": "BTN_START",
             "298": "BTN_THUMBL",
-            "299": "BTN_THUMBR"
+            "299": "BTN_THUMBR",
+            "16:-1": "BTN_DPAD_LEFT"
         }
     }
 }

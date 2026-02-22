@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QComboBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from evdev import InputDevice
 
 from core.device_detector import DeviceDetector
 from core.virtual_gamepad import VirtualGamepad
@@ -27,8 +28,9 @@ class ControllerThread(QThread):
 
     status_signal = pyqtSignal(str)
 
-    def __init__(self, vid, pid, keyset_mode="analog"):
+    def __init__(self, device_path=None, vid=None, pid=None, keyset_mode="analog"):
         super().__init__()
+        self.device_path = device_path
         self.vid = vid
         self.pid = pid
         self.keyset_mode = keyset_mode
@@ -36,8 +38,16 @@ class ControllerThread(QThread):
 
     def run(self):
 
-        detector = DeviceDetector(vid=self.vid, pid=self.pid)
-        device = detector.find()
+        device = None
+        if self.device_path:
+            try:
+                device = InputDevice(self.device_path)
+            except Exception:
+                device = None
+
+        if not device:
+            detector = DeviceDetector(vid=self.vid, pid=self.pid)
+            device = detector.find()
 
         if not device:
             self.status_signal.emit("Device Not Found")
@@ -76,6 +86,7 @@ class LJGM(QMainWindow):
         self.current_pid = ""
 
         self.selected_device = None  # 🔹 central device reference
+        self.available_devices = []
 
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
@@ -135,6 +146,12 @@ class LJGM(QMainWindow):
         self.mouse_checkbox = QCheckBox("Use Left Stick as Mouse")
         self.mouse_checkbox.setEnabled(False)
 
+        # Explicit controller selector when multiple gamepads are connected
+        self.controller_select = QComboBox()
+        self.controller_select.currentIndexChanged.connect(self.on_controller_selected)
+        self.refresh_controllers_btn = QPushButton("Refresh Controllers")
+        self.refresh_controllers_btn.clicked.connect(self.refresh_device_info)
+
         # Active mapping mode for runtime processing
         self.active_mode_select = QComboBox()
         self.active_mode_select.addItems(["analog", "digital"])
@@ -145,6 +162,9 @@ class LJGM(QMainWindow):
 
         layout.addWidget(self.start_btn)
         layout.addWidget(self.stop_btn)
+        layout.addWidget(QLabel("Controller List"))
+        layout.addWidget(self.controller_select)
+        layout.addWidget(self.refresh_controllers_btn)
         layout.addWidget(QLabel("Active Keyset Mode"))
         layout.addWidget(self.active_mode_select)
 
@@ -166,9 +186,10 @@ class LJGM(QMainWindow):
             return
 
         self.thread = ControllerThread(
-            format(self.selected_device.info.vendor, "04x"),
-            format(self.selected_device.info.product, "04x"),
-            self.active_mode_select.currentText()
+            device_path=self.selected_device.path,
+            vid=format(self.selected_device.info.vendor, "04x"),
+            pid=format(self.selected_device.info.product, "04x"),
+            keyset_mode=self.active_mode_select.currentText()
         )
 
         self.thread.status_signal.connect(self.update_status)
@@ -176,6 +197,8 @@ class LJGM(QMainWindow):
 
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
+        self.controller_select.setEnabled(False)
+        self.refresh_controllers_btn.setEnabled(False)
 
         self.sensitivity_slider.setEnabled(True)
         self.apply_sensitivity_btn.setEnabled(True)
@@ -189,6 +212,8 @@ class LJGM(QMainWindow):
 
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        self.controller_select.setEnabled(True)
+        self.refresh_controllers_btn.setEnabled(True)
 
         self.sensitivity_slider.setEnabled(False)
         self.apply_sensitivity_btn.setEnabled(False)
@@ -207,45 +232,76 @@ class LJGM(QMainWindow):
         # integrate with processor later
 
     def refresh_device_info(self):
-    
+        self.refresh_controller_list()
+
+    def refresh_controller_list(self):
         vid = self.vid_input.text().strip() if hasattr(self, "vid_input") else ""
         pid = self.pid_input.text().strip() if hasattr(self, "pid_input") else ""
+        previous_path = self.selected_device.path if self.selected_device else None
 
         detector = DeviceDetector(vid=vid or None, pid=pid or None)
-        device = detector.find()
+        devices = detector.list_supported()
+        if not devices and (vid or pid):
+            # Fall back to full auto-list when VID/PID filter gives no matches.
+            devices = DeviceDetector().list_supported()
 
-        if device:
-            self.selected_device = device
+        self.available_devices = devices
 
-            actual_vid = format(device.info.vendor, "04x")
-            actual_pid = format(device.info.product, "04x")
+        self.controller_select.blockSignals(True)
+        self.controller_select.clear()
+        for dev in devices:
+            actual_vid = format(dev.info.vendor, "04x")
+            actual_pid = format(dev.info.product, "04x")
+            label = f"{dev.name} ({actual_vid}:{actual_pid}) [{dev.path}]"
+            self.controller_select.addItem(label, dev.path)
+        self.controller_select.blockSignals(False)
 
-            self.device_label.setText(
-                f"Device: {device.name} | VID: {actual_vid} | PID: {actual_pid}"
-            )
-            self.status_label.setText("Status: 🔴 Not Running")
-
-            self.start_btn.setEnabled(True)
-            self.stop_btn.setEnabled(False)
-
-            self.tabs.setTabEnabled(1, True)
-            self.tabs.setTabEnabled(2, True)
-
-        else:
+        if not devices:
             self.selected_device = None
-
+            self.assign_tab.set_controller_path(None)
+            self.vibration.set_device_path(None)
             self.device_label.setText("Device: Not Detected")
             self.status_label.setText("Status: 🔴 Not Running")
-
             self.start_btn.setEnabled(False)
             self.stop_btn.setEnabled(False)
-
             self.sensitivity_slider.setEnabled(False)
             self.apply_sensitivity_btn.setEnabled(False)
             self.mouse_checkbox.setEnabled(False)
-
+            self.controller_select.setEnabled(False)
             self.tabs.setTabEnabled(1, False)
             self.tabs.setTabEnabled(2, False)
+            return
+
+        self.controller_select.setEnabled(True)
+        target_index = 0
+        if previous_path:
+            for idx, dev in enumerate(devices):
+                if dev.path == previous_path:
+                    target_index = idx
+                    break
+
+        self.controller_select.setCurrentIndex(target_index)
+        self.set_selected_device(devices[target_index])
+        self.stop_btn.setEnabled(False)
+
+    def on_controller_selected(self, index):
+        if index < 0 or index >= len(self.available_devices):
+            return
+        self.set_selected_device(self.available_devices[index])
+
+    def set_selected_device(self, device):
+        self.selected_device = device
+        actual_vid = format(device.info.vendor, "04x")
+        actual_pid = format(device.info.product, "04x")
+        self.device_label.setText(
+            f"Device: {device.name} | VID: {actual_vid} | PID: {actual_pid}"
+        )
+        self.status_label.setText("Status: 🔴 Not Running")
+        self.start_btn.setEnabled(True)
+        self.tabs.setTabEnabled(1, True)
+        self.tabs.setTabEnabled(2, True)
+        self.assign_tab.set_controller_path(device.path)
+        self.vibration.set_device_path(device.path)
 
     # ======================
     # Vibration

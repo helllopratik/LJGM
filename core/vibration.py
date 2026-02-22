@@ -2,6 +2,7 @@
 
 from evdev import InputDevice, ecodes, ff
 from evdev import list_devices
+from core.device_detector import DeviceDetector
 
 
 class VibrationManager:
@@ -12,12 +13,19 @@ class VibrationManager:
         self.intensity = 100   # percent
         self.duration = 1000   # milliseconds
 
-    def find_device(self):
+    def find_device(self, preferred_path=None):
+        primary = DeviceDetector().find(preferred_path=preferred_path)
+        if primary and ecodes.EV_FF in primary.capabilities():
+            return primary
+
         for path in list_devices():
             dev = InputDevice(path)
-            if "Joystick" in dev.name:
+            if ecodes.EV_FF in dev.capabilities():
                 return dev
         return None
+
+    def set_device_path(self, path):
+        self.device = self.find_device(preferred_path=path)
 
     def set_enabled(self, state: bool):
         self.enabled = state

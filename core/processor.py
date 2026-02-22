@@ -10,6 +10,7 @@ class InputProcessor:
         self.physical = physical
         self.virtual = virtual
         self.mapper = Mapper()
+        self.axis_info = dict(physical.capabilities(absinfo=True).get(ecodes.EV_ABS, []))
         self.hat_state = {
             ecodes.ABS_HAT0X: 0,
             ecodes.ABS_HAT0Y: 0,
@@ -19,7 +20,16 @@ class InputProcessor:
         # Later we will auto-detect LED state
         self.current_mode = "analog"
 
-    def normalize_axis(self, value):
+    def normalize_axis(self, axis_code, value):
+        info = self.axis_info.get(axis_code)
+        if info and info.max > info.min:
+            center = (info.min + info.max) / 2.0
+            span = max(center - info.min, info.max - center)
+            if span > 0:
+                normalized = int(((value - center) / span) * 32767)
+                return max(-32768, min(32767, normalized))
+
+        # Fallback for unknown axis metadata.
         return int((value - 128) * 256)
 
     def apply_deadzone(self, value):
@@ -86,26 +96,26 @@ class InputProcessor:
                 # Left Stick
                 if event.code == ecodes.ABS_X:
                     value = self.apply_deadzone(
-                        self.normalize_axis(event.value)
+                        self.normalize_axis(event.code, event.value)
                     )
                     self.virtual.emit_abs(ecodes.ABS_X, value)
 
                 elif event.code == ecodes.ABS_Y:
                     value = self.apply_deadzone(
-                        self.normalize_axis(event.value)
+                        self.normalize_axis(event.code, event.value)
                     )
                     self.virtual.emit_abs(ecodes.ABS_Y, value)
 
                 # Right Stick (DragonRise)
                 elif event.code == ecodes.ABS_Z:
                     value = self.apply_deadzone(
-                        self.normalize_axis(event.value)
+                        self.normalize_axis(event.code, event.value)
                     )
                     self.virtual.emit_abs(ecodes.ABS_RX, value)
 
                 elif event.code == ecodes.ABS_RZ:
                     value = self.apply_deadzone(
-                        self.normalize_axis(event.value)
+                        self.normalize_axis(event.code, event.value)
                     )
                     self.virtual.emit_abs(ecodes.ABS_RY, value)
 

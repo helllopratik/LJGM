@@ -7,7 +7,8 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer
 
-from evdev import InputDevice, list_devices, ecodes
+from evdev import ecodes
+from core.device_detector import DeviceDetector
 from core.mapper import Mapper
 
 
@@ -33,7 +34,7 @@ BUTTON_MAP = {
 
 class MappingWizard(QWidget):
 
-    def __init__(self):
+    def __init__(self, controller_path=None):
         super().__init__()
 
         self.setWindowTitle("LJGM - Controller Mapping Wizard")
@@ -42,6 +43,7 @@ class MappingWizard(QWidget):
         self.mapper = Mapper()
         self.current_mode = "analog"
         self.waiting_for = None
+        self.controller_path = controller_path
 
         self.buttons = {}
 
@@ -120,13 +122,20 @@ class MappingWizard(QWidget):
     # ----------------- Logic -----------------
 
     def detect_joystick(self):
-        for path in list_devices():
-            dev = InputDevice(path)
-            caps = dev.capabilities()
-            if ecodes.EV_ABS in caps and ecodes.EV_KEY in caps:
-                os.set_blocking(dev.fd, False)
-                return dev
-        return None
+        dev = DeviceDetector().find(preferred_path=self.controller_path)
+        if not dev:
+            return None
+        os.set_blocking(dev.fd, False)
+        return dev
+
+    def set_controller_path(self, path):
+        self.controller_path = path
+        self.waiting_for = None
+        self.joystick = self.detect_joystick()
+        if self.joystick:
+            self.status.setText(f"Controller selected: {self.joystick.name}")
+        else:
+            self.status.setText("No joystick detected")
 
     def _extract_physical_token(self, event, virtual_name):
         if event.type == ecodes.EV_KEY and event.value == 1:
