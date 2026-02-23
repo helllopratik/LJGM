@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=LJGM
+Comment=Linux Joypad Generic Manager
+Exec=ljgm
+Icon=ljgm
+Terminal=false
+Categories=Game;Utility;
+Keywords=controller;gamepad;joystick;mapping;
+StartupNotify=true

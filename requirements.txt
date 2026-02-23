@@ -1,2 +1,3 @@
-evdev
-python-uinput
+PyQt6>=6.6
+evdev>=1.7
+python-uinput>=0.11

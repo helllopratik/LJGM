@@ -1,0 +1,15 @@
+# Python caches
+__pycache__/
+*.pyc
+
+# Local environment
+.venv/
+
+# Build outputs
+build/
+dist/
+*.deb
+
+# IDE
+.vscode/
+.idea/
