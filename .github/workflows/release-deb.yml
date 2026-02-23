@@ -8,7 +8,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '1.0.1'
+        description: 'Package version (example: 1.0.1). Leave empty to use 1.0.0 or tag version.'
+        required: false
+        type: string
+      release_tag:
+        description: 'Optional release tag (example: v1.0.1). If empty, a tag is generated.'
         required: false
         type: string
 
@@ -23,6 +27,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve version and tag
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            TAG="${{ github.event.inputs.release_tag }}"
+
+            if [[ -z "${VERSION}" ]]; then
+              VERSION="1.0.0"
+            fi
+            if [[ -z "${TAG}" ]]; then
+              TAG="v${VERSION}"
+            fi
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
       - name: Install packaging dependencies
         run: |
           sudo apt-get update
@@ -30,17 +55,12 @@ jobs:
 
       - name: Build .deb from tag
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            VERSION="${{ github.event.inputs.version }}"
-          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="1.0.0"
-          fi
-          ./packaging/build_deb.sh "$VERSION"
+          ./packaging/build_deb.sh "${{ steps.meta.outputs.version }}"
 
       - name: Upload .deb to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
           files: dist/*.deb
           generate_release_notes: true
