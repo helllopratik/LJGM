@@ -1,5 +1,7 @@
 # core/vibration.py
 
+import errno
+
 from evdev import InputDevice, ecodes, ff
 from evdev import list_devices
 from core.device_detector import DeviceDetector
@@ -12,6 +14,7 @@ class VibrationManager:
         self.enabled = True
         self.intensity = 100   # percent
         self.duration = 1000   # milliseconds
+        self.effect_id = None
 
     def find_device(self, preferred_path=None):
         primary = DeviceDetector().find(preferred_path=preferred_path)
@@ -26,6 +29,7 @@ class VibrationManager:
 
     def set_device_path(self, path):
         self.device = self.find_device(preferred_path=path)
+        self.effect_id = None
 
     def set_enabled(self, state: bool):
         self.enabled = state
@@ -66,14 +70,31 @@ class VibrationManager:
             weak_magnitude=weak
         )
 
-        effect = ff.Effect(
-            ecodes.FF_RUMBLE,
-            -1,
-            0,
-            ff.Trigger(0, 0),
-            ff.Replay(self.duration, 0),
-            ff.EffectType(ff_rumble_effect=rumble)
-        )
+        def build_effect(effect_id):
+            return ff.Effect(
+                ecodes.FF_RUMBLE,
+                effect_id,
+                0,
+                ff.Trigger(0, 0),
+                ff.Replay(self.duration, 0),
+                ff.EffectType(ff_rumble_effect=rumble)
+            )
 
-        effect_id = self.device.upload_effect(effect)
+        # Reuse the previously allocated effect slot to avoid ENOSPC on devices
+        # with a very small number of FF effect slots.
+        target_effect_id = self.effect_id if self.effect_id is not None else -1
+        effect = build_effect(target_effect_id)
+
+        try:
+            effect_id = self.device.upload_effect(effect)
+        except OSError as exc:
+            if exc.errno == errno.ENOSPC and self.effect_id is not None:
+                # If kernel state got out of sync, reset and retry once.
+                self.effect_id = None
+                effect = build_effect(-1)
+                effect_id = self.device.upload_effect(effect)
+            else:
+                raise
+
+        self.effect_id = effect_id
         self.device.write(ecodes.EV_FF, effect_id, 1)
