@@ -72,7 +72,7 @@ dist/ljgm_<version>_amd64.deb
 ## Install Debian Package
 
 ```bash
-sudo apt install ./dist/ljgm_1.0.0_amd64.deb
+sudo apt install ./ljgm_1.0.0_amd64.deb
 ```
 
 ## Notes
